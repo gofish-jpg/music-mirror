@@ -1,0 +1,24 @@
+{
+  "name": "music-mirror",
+  "version": "0.1.0+codex.20260910003619",
+  "description": "Private YouTube Music listening analytics from an Android collector.",
+  "author": {
+    "name": "Music Mirror"
+  },
+  "interface": {
+    "displayName": "Music Mirror",
+    "shortDescription": "Understand your mobile YouTube Music habits.",
+    "longDescription": "Music Mirror privately records YouTube Music playback on Android and lets ChatGPT analyze recent listens, favorite tracks, completion rates, and listening patterns.",
+    "developerName": "Music Mirror",
+    "category": "Lifestyle",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "What have I been listening to lately?",
+      "Analyze my listening pattern this month.",
+      "Which songs do I rarely skip?"
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

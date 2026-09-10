@@ -1,0 +1,11 @@
+.gradle/
+.idea/
+**/build/
+local.properties
+*.jks
+*.keystore
+worker/.wrangler/
+worker/node_modules/
+worker/.dev.vars
+*.zip
+

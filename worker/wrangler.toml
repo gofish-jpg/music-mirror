@@ -1,0 +1,13 @@
+name = "music-mirror"
+main = "src/worker.mjs"
+compatibility_date = "2026-08-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "music-mirror"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# Add secrets with:
+# npx wrangler secret put INGEST_TOKEN
+# npx wrangler secret put READ_TOKEN
+

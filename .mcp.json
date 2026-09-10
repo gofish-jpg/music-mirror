@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "music-mirror": {
+      "type": "http",
+      "url": "https://YOUR-WORKER.workers.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_READ_TOKEN"
+      }
+    }
+  }
+}
