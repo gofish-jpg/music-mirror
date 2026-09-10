@@ -5,7 +5,7 @@ compatibility_date = "2026-08-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "music-mirror"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "ead3e56e-d67c-4a38-b2a9-2db8a0f66a52"
 
 # Add secrets with:
 # npx wrangler secret put INGEST_TOKEN
