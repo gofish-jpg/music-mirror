@@ -134,7 +134,7 @@ class MainActivity : Activity() {
         client.schedule(force = true) { result ->
             runOnUiThread {
                 result.fold(
-                    onSuccess = { Toast.makeText(this, "동기화 완료: $it개 기록", Toast.LENGTH_LONG).show() },
+                    onSuccess = { Toast.makeText(this, "동기화 완료: ${it}개 기록", Toast.LENGTH_LONG).show() },
                     onFailure = { Toast.makeText(this, "동기화 실패: ${it.message}", Toast.LENGTH_LONG).show() }
                 )
                 refreshStatus()
