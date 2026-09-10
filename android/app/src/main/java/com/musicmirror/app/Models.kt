@@ -36,3 +36,35 @@ data class PendingEvent(
     val payload: String?
 )
 
+data class RecommendationMix(
+    val id: String,
+    val name: String,
+    val summary: String?,
+    val createdAt: Long
+)
+
+data class RecommendationItem(
+    val id: String,
+    val position: Int,
+    val title: String,
+    val artist: String,
+    val album: String?,
+    val reason: String?,
+    val youtubeUrl: String?,
+    val feedback: String?
+)
+
+data class ListeningSummary(
+    val sessions: Int,
+    val uniqueTracks: Int,
+    val listenedMs: Long,
+    val completionRate: Double,
+    val skipCount: Int
+)
+
+data class DjDashboard(
+    val periodDays: Int,
+    val summary: ListeningSummary,
+    val mix: RecommendationMix?,
+    val recommendations: List<RecommendationItem>
+)

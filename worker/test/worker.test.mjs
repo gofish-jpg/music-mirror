@@ -27,15 +27,80 @@ test("MCP initializes", async () => {
   assert.ok(body.result.capabilities.tools);
 });
 
-test("MCP lists six read-only analytics tools", async () => {
+test("MCP capability URL initializes without an Authorization header", async () => {
+  const request = new Request("https://example.test/mcp/read-secret", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 11, method: "initialize", params: {} })
+  });
+  const response = await worker.fetch(request, env);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).result.serverInfo.version, "0.2.0");
+});
+
+test("MCP lists analytics and AI DJ tools", async () => {
   const request = new Request("https://example.test/mcp", {
     method: "POST",
     headers: { authorization: "Bearer read-secret", "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })
   });
   const body = await (await worker.fetch(request, env)).json();
-  assert.equal(body.result.tools.length, 6);
+  assert.equal(body.result.tools.length, 9);
   assert.ok(body.result.tools.every((tool) => tool.inputSchema.type === "object"));
+  assert.equal(body.result.tools.find((tool) => tool.name === "save_recommendation_mix").annotations.readOnlyHint, false);
+});
+
+test("recent listens returns object-shaped structured content", async () => {
+  const fakeDb = {
+    prepare() {
+      return {
+        bind() { return this; },
+        async all() { return { results: [{ title: "Song", artist: "Artist" }] }; }
+      };
+    }
+  };
+  const request = new Request("https://example.test/mcp/read-secret", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: 12, method: "tools/call",
+      params: { name: "recent_listens", arguments: { limit: 5 } }
+    })
+  });
+  const body = await (await worker.fetch(request, { ...env, DB: fakeDb })).json();
+  assert.ok(Array.isArray(body.result.structuredContent.listens));
+  assert.equal(body.result.structuredContent.listens[0].title, "Song");
+});
+
+test("ChatGPT can save a recommendation mix for the Android app", async () => {
+  let batchSize = 0;
+  const fakeDb = {
+    prepare(sql) {
+      return { sql, bind(...values) { this.values = values; return this; } };
+    },
+    async batch(statements) { batchSize = statements.length; return []; }
+  };
+  const request = new Request("https://example.test/mcp/read-secret", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: 13, method: "tools/call",
+      params: {
+        name: "save_recommendation_mix",
+        arguments: {
+          name: "오늘의 믹스",
+          summary: "청취 기록 기반 추천",
+          items: [
+            { title: "Song A", artist: "Artist A", reason: "완주율이 높은 곡과 비슷함" },
+            { title: "Song B", artist: "Artist B", youtubeUrl: "https://music.youtube.com/watch?v=test" }
+          ]
+        }
+      }
+    })
+  });
+  const body = await (await worker.fetch(request, { ...env, DB: fakeDb })).json();
+  assert.equal(body.result.structuredContent.savedCount, 2);
+  assert.equal(batchSize, 3);
 });
 
 test("sync accepts a valid offline batch and prepares both writes", async () => {

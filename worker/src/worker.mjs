@@ -6,7 +6,7 @@ export default {
     try {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
-        return json({ ok: true, service: "music-mirror", version: "0.1.0" });
+        return json({ ok: true, service: "music-mirror", version: "0.2.0" });
       }
       if (request.method === "POST" && url.pathname === "/v1/sync") {
         if (!authorized(request, env.INGEST_TOKEN)) return json({ error: "unauthorized" }, 401);
@@ -16,8 +16,19 @@ export default {
         if (!authorized(request, env.READ_TOKEN)) return json({ error: "unauthorized" }, 401);
         return await exportData(env.DB, url);
       }
-      if (request.method === "POST" && url.pathname === "/mcp") {
-        if (!authorized(request, env.READ_TOKEN)) return json({ error: "unauthorized" }, 401);
+      if (request.method === "GET" && url.pathname === "/v1/dashboard") {
+        if (!authorized(request, env.INGEST_TOKEN)) return json({ error: "unauthorized" }, 401);
+        return json(await dashboardData(env.DB));
+      }
+      if (request.method === "POST" && url.pathname === "/v1/feedback") {
+        if (!authorized(request, env.INGEST_TOKEN)) return json({ error: "unauthorized" }, 401);
+        return await saveFeedback(request, env.DB);
+      }
+      const capabilityPath = env.READ_TOKEN ? `/mcp/${env.READ_TOKEN}` : null;
+      if (request.method === "POST" && (url.pathname === "/mcp" || url.pathname === capabilityPath)) {
+        if (url.pathname === "/mcp" && !authorized(request, env.READ_TOKEN)) {
+          return json({ error: "unauthorized" }, 401);
+        }
         return await handleMcp(request, env.DB);
       }
       return json({ error: "not_found" }, 404);
@@ -85,7 +96,7 @@ async function handleMcp(request, db) {
     return rpc(id, {
       protocolVersion: MCP_PROTOCOL,
       capabilities: { tools: {} },
-      serverInfo: { name: "music-mirror", version: "0.1.0" }
+      serverInfo: { name: "music-mirror", version: "0.2.0" }
     });
   }
   if (message.method === "ping") return rpc(id, {});
@@ -97,7 +108,7 @@ async function handleMcp(request, db) {
     const result = await callTool(db, name, args);
     return rpc(id, {
       content: [{ type: "text", text: JSON.stringify(result) }],
-      structuredContent: result
+      structuredContent: Array.isArray(result) ? { items: result } : (result || {})
     });
   }
   return rpcError(id, -32601, "Method not found");
@@ -135,6 +146,50 @@ function toolDefinitions() {
       name: "music_now",
       description: "Get the latest currently open playback session, if recent enough.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false }
+    }),
+    withWrite({
+      name: "save_recommendation_mix",
+      description: "Save a personalized music recommendation mix so it appears in the user's Music Mirror Android app.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 120 },
+          summary: { type: "string", maxLength: 1000 },
+          items: {
+            type: "array",
+            minItems: 1,
+            maxItems: 25,
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string", minLength: 1, maxLength: 300 },
+                artist: { type: "string", minLength: 1, maxLength: 300 },
+                album: { type: "string", maxLength: 300 },
+                reason: { type: "string", maxLength: 800 },
+                youtubeUrl: { type: "string", maxLength: 1000 }
+              },
+              required: ["title", "artist"],
+              additionalProperties: false
+            }
+          }
+        },
+        required: ["name", "items"],
+        additionalProperties: false
+      }
+    }),
+    withReadOnly({
+      name: "current_recommendation_mix",
+      description: "Read the latest recommendation mix currently shown in the Music Mirror Android app.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false }
+    }),
+    withReadOnly({
+      name: "recommendation_feedback",
+      description: "Read the user's likes, dislikes, and plays for prior Music Mirror recommendations.",
+      inputSchema: {
+        type: "object",
+        properties: { limit: { type: "integer", minimum: 1, maximum: 200, default: 100 } },
+        additionalProperties: false
+      }
     })
   ];
 }
@@ -146,17 +201,24 @@ function withReadOnly(tool) {
   };
 }
 
+function withWrite(tool) {
+  return {
+    ...tool,
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: false }
+  };
+}
+
 async function callTool(db, name, args) {
   const days = clampInt(args.days, 30, 1, 365);
   const since = Date.now() - days * 86_400_000;
   if (name === "recent_listens") {
     const limit = clampInt(args.limit, 20, 1, 100);
-    return rows(await db.prepare(`
+    return { listens: rows(await db.prepare(`
       SELECT id, title, artist, album, started_at AS startedAt, ended_at AS endedAt,
              listened_ms AS listenedMs, duration_ms AS durationMs,
              last_position_ms AS lastPositionMs, completed, device_id AS deviceId
       FROM listens ORDER BY started_at DESC LIMIT ?
-    `).bind(limit).all());
+    `).bind(limit).all()) };
   }
   if (name === "listening_summary") {
     const summary = first(await db.prepare(`
@@ -174,14 +236,14 @@ async function callTool(db, name, args) {
   }
   if (name === "top_tracks") {
     const limit = clampInt(args.limit, 10, 1, 50);
-    return rows(await db.prepare(`
+    return { periodDays: days, tracks: rows(await db.prepare(`
       SELECT title, artist, album, COUNT(*) AS sessions,
              SUM(listened_ms) AS listenedMs,
              ROUND(100.0 * AVG(completed), 1) AS completionRate
       FROM listens WHERE started_at >= ?
       GROUP BY track_key, title, artist, album
       ORDER BY listenedMs DESC LIMIT ?
-    `).bind(since, limit).all());
+    `).bind(since, limit).all()) };
   }
   if (name === "listening_patterns") {
     const hourly = rows(await db.prepare(`
@@ -219,7 +281,114 @@ async function callTool(db, name, args) {
     `).bind(Date.now() - 10 * 60_000).all());
     return result ? { playing: true, ...result } : { playing: false };
   }
+  if (name === "save_recommendation_mix") {
+    return await saveRecommendationMix(db, args);
+  }
+  if (name === "current_recommendation_mix") {
+    return await latestRecommendationMix(db, 25);
+  }
+  if (name === "recommendation_feedback") {
+    const limit = clampInt(args.limit, 100, 1, 200);
+    return {
+      feedback: rows(await db.prepare(`
+        SELECT f.feedback, f.created_at AS createdAt,
+               r.title, r.artist, r.reason, s.name AS mixName
+        FROM recommendation_feedback f
+        JOIN recommendations r ON r.id = f.recommendation_id
+        JOIN recommendation_sets s ON s.id = r.set_id
+        ORDER BY f.created_at DESC LIMIT ?
+      `).bind(limit).all())
+    };
+  }
   throw new Error(`Unknown tool: ${name}`);
+}
+
+async function dashboardData(db) {
+  const days = 30;
+  const since = Date.now() - days * 86_400_000;
+  const summary = first(await db.prepare(`
+    SELECT COUNT(*) AS sessions, COUNT(DISTINCT track_key) AS uniqueTracks,
+           COALESCE(SUM(listened_ms), 0) AS listenedMs,
+           ROUND(100.0 * AVG(completed), 1) AS completionRate
+    FROM listens WHERE started_at >= ?
+  `).bind(since).all()) || {};
+  const skips = first(await db.prepare(`
+    SELECT COUNT(*) AS skipCount FROM playback_events
+    WHERE occurred_at >= ? AND event_type = 'skip_next'
+  `).bind(since).all()) || {};
+  return {
+    periodDays: days,
+    summary: { ...summary, ...skips },
+    recommendationMix: await latestRecommendationMix(db, 25)
+  };
+}
+
+async function saveRecommendationMix(db, args) {
+  const name = clean(args.name, 120);
+  const summary = nullableClean(args.summary, 1000);
+  const items = Array.isArray(args.items) ? args.items.slice(0, 25) : [];
+  if (!name || items.length === 0) throw new Error("A mix name and at least one recommendation are required");
+
+  const mixId = crypto.randomUUID();
+  const now = Date.now();
+  const statements = [
+    db.prepare(`
+      INSERT INTO recommendation_sets (id, name, summary, created_at, source)
+      VALUES (?, ?, ?, ?, 'chatgpt')
+    `).bind(mixId, name, summary, now)
+  ];
+  items.forEach((item, index) => {
+    if (!item || typeof item !== "object") throw new Error(`Invalid recommendation at position ${index + 1}`);
+    const title = clean(item.title, 300);
+    const artist = clean(item.artist, 300);
+    const youtubeUrl = safeYouTubeUrl(item.youtubeUrl);
+    statements.push(db.prepare(`
+      INSERT INTO recommendations (
+        id, set_id, position, title, artist, album, reason, youtube_url, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      crypto.randomUUID(), mixId, index + 1, title, artist,
+      nullableClean(item.album, 300), nullableClean(item.reason, 800), youtubeUrl, now
+    ));
+  });
+  await db.batch(statements);
+  return { ok: true, mixId, name, savedCount: items.length, message: "The mix is now available in the Music Mirror app." };
+}
+
+async function latestRecommendationMix(db, limit) {
+  const mix = first(await db.prepare(`
+    SELECT id, name, summary, created_at AS createdAt, source
+    FROM recommendation_sets ORDER BY created_at DESC LIMIT 1
+  `).all());
+  if (!mix) return { mix: null, items: [] };
+  const items = rows(await db.prepare(`
+    SELECT r.id, r.position, r.title, r.artist, r.album, r.reason,
+           r.youtube_url AS youtubeUrl,
+           (SELECT f.feedback FROM recommendation_feedback f
+            WHERE f.recommendation_id = r.id
+            ORDER BY f.created_at DESC LIMIT 1) AS feedback
+    FROM recommendations r
+    WHERE r.set_id = ? ORDER BY r.position LIMIT ?
+  `).bind(mix.id, limit).all());
+  return { mix, items };
+}
+
+async function saveFeedback(request, db) {
+  const body = await request.json();
+  const recommendationId = clean(body.recommendationId, 100);
+  const feedback = String(body.feedback || "").trim();
+  if (!["like", "dislike", "played"].includes(feedback)) {
+    return json({ error: "invalid_feedback" }, 400);
+  }
+  const exists = first(await db.prepare(
+    "SELECT id FROM recommendations WHERE id = ? LIMIT 1"
+  ).bind(recommendationId).all());
+  if (!exists) return json({ error: "recommendation_not_found" }, 404);
+  await db.prepare(`
+    INSERT INTO recommendation_feedback (recommendation_id, feedback, created_at, device_id)
+    VALUES (?, ?, ?, ?)
+  `).bind(recommendationId, feedback, Date.now(), nullableClean(body.deviceId, 200)).run();
+  return json({ ok: true, recommendationId, feedback });
 }
 
 async function exportData(db, url) {
@@ -232,6 +401,7 @@ async function exportData(db, url) {
 
 function validateListen(item) {
   if (!item || typeof item !== "object") throw new Error("Invalid listen");
+  if (typeof item.artist === "string" && !item.artist.trim()) item.artist = "Unknown artist";
   for (const key of ["id", "trackKey", "title", "artist", "deviceId"]) {
     if (typeof item[key] !== "string" || !item[key].trim()) throw new Error(`Invalid listen.${key}`);
   }
@@ -248,6 +418,18 @@ function clean(value, max) {
 }
 function nullableClean(value, max) { return value == null ? null : clean(String(value), max); }
 function nullable(value) { return value == null ? null : String(value); }
+function safeYouTubeUrl(value) {
+  if (value == null || String(value).trim() === "") return null;
+  try {
+    const url = new URL(String(value));
+    const host = url.hostname.toLowerCase();
+    return url.protocol === "https:" && ["youtube.com", "www.youtube.com", "music.youtube.com", "youtu.be"].includes(host)
+      ? url.toString().slice(0, 1000)
+      : null;
+  } catch {
+    return null;
+  }
+}
 function integer(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) throw new Error("Expected number");

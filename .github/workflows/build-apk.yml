@@ -37,6 +37,12 @@ jobs:
         with:
           gradle-version: "8.11.1"
 
+      - name: Reuse Android debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: music-mirror-debug-keystore-v1
+
       - name: Build debug APK
         working-directory: android
         run: gradle --no-daemon :app:assembleDebug
@@ -44,8 +50,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Music-Mirror-debug
+          name: Music-Mirror-DJ-v0.2-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
-

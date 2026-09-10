@@ -1,6 +1,6 @@
 # Music Mirror
 
-갤럭시에서 재생되는 **YouTube Music 청취 기록을 자동 수집**하고, 비공개 Cloudflare D1에 동기화하여 ChatGPT가 MCP 도구로 분석할 수 있게 하는 개인용 프로젝트입니다.
+갤럭시에서 재생되는 **YouTube Music 청취 기록을 자동 수집**하고, ChatGPT가 취향을 분석해 만든 추천 믹스를 앱으로 돌려주는 개인용 AI 음악 비서입니다.
 
 ## 현재 구현 범위
 
@@ -11,9 +11,22 @@
 - 인터넷이 없어도 SQLite에 먼저 저장하고 나중에 자동 동기화
 - 서버 전송용 토큰과 ChatGPT 조회용 토큰 분리
 - Android의 전송용 토큰은 Android Keystore로 암호화
-- ChatGPT용 읽기 전용 도구 6개
+- ChatGPT용 청취 분석 도구 6개
+- ChatGPT가 추천 믹스를 앱에 저장하는 MCP 도구
+- 추천 이유와 YouTube Music 열기
+- 추천곡 좋아요/별로/재생 피드백 수집
 
 검색어, 좋아요 버튼, 자동재생/플레이리스트 출처는 YouTube Music이 Android 미디어 세션으로 제공하지 않을 수 있으므로 현재 수집하지 않습니다. Google 로그인 정보와 YouTube 인증 토큰은 사용하지 않습니다.
+
+## AI 추천 믹스 만들기
+
+ChatGPT에서 Music Mirror 플러그인을 켜고 다음처럼 요청합니다.
+
+> 최근 청취 기록과 추천 피드백을 분석해서 새로운 곡 중심의 추천 믹스 10곡을 만들고 Music Mirror 앱에 저장해줘.
+
+ChatGPT가 `save_recommendation_mix` 도구를 호출하면 앱의 **AI 추천 새로고침**에서 곡 카드가 나타납니다. 앱의 `듣기` 버튼은 YouTube Music 검색 또는 ChatGPT가 저장한 YouTube 링크를 엽니다.
+
+기존 D1 사용자는 `worker/migrations/0002_ai_dj.sql`을 한 번 실행해야 합니다.
 
 ## 폴더
 

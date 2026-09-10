@@ -46,7 +46,7 @@ class SyncClient(context: Context, private val database: MusicDatabase) {
             doOutput = true
             setRequestProperty("Authorization", "Bearer ${settings.ingestToken}")
             setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("User-Agent", "MusicMirror-Android/0.1")
+            setRequestProperty("User-Agent", "MusicMirror-Android/0.2")
         }
         connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
         val responseText = (if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream)
